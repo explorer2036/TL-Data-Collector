@@ -76,6 +76,7 @@ func (p *Program) initLogger() {
 
 // init the report service client
 func (p *Program) initReportClient() {
+	log.Info(p.settings.Gateway)
 	// set up a connection to the server.
 	conn, err := grpc.Dial(
 		p.settings.Gateway,
@@ -84,7 +85,7 @@ func (p *Program) initReportClient() {
 		grpc.WithTimeout(5*time.Second),
 	)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("grpc conn: %v", err))
 	}
 	// update the connection
 	p.conn = conn
