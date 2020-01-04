@@ -2,7 +2,7 @@ package main
 
 import (
 	"TL-Data-Collector/config"
-	"TL-Proto/gateway"
+	"TL-Data-Collector/proto/gateway"
 	"fmt"
 	"os"
 	"syscall"

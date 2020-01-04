@@ -2,7 +2,7 @@ package main
 
 import (
 	"TL-Data-Collector/entity"
-	"TL-Proto/gateway"
+	"TL-Data-Collector/proto/gateway"
 	"context"
 	"encoding/json"
 	"io/ioutil"
