@@ -58,7 +58,6 @@ func (p *Program) load() (string, string, string) {
 		log.Errorf("read credential file: %v", err)
 		runtime.Goexit()
 	}
-	login := strings.Split(string(credential), "")[0]
 
 	// read token file
 	token, err := ioutil.ReadFile(p.settings.BaseDir + tokenPath)
@@ -74,7 +73,7 @@ func (p *Program) load() (string, string, string) {
 		runtime.Goexit()
 	}
 
-	return login, string(token), string(uuid)
+	return string(credential), string(token), string(uuid)
 }
 
 // write a heartbeat message to gateway

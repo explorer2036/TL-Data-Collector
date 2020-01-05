@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"time"
 
+	"google.golang.org/grpc/keepalive"
+
 	"google.golang.org/grpc"
 
 	"github.com/kardianos/service"
@@ -76,13 +78,17 @@ func (p *Program) initLogger() {
 
 // init the report service client
 func (p *Program) initReportClient() {
-	log.Info(p.settings.Gateway)
 	// set up a connection to the server.
 	conn, err := grpc.Dial(
 		p.settings.Gateway,
 		grpc.WithInsecure(),
 		grpc.WithBlock(),
 		grpc.WithTimeout(5*time.Second),
+		// for the communication by the internet, should open the keepalive
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:    15 * time.Second,
+			Timeout: 5 * time.Second,
+		}),
 	)
 	if err != nil {
 		panic(fmt.Sprintf("grpc conn: %v", err))
@@ -140,11 +146,11 @@ func (p *Program) run() error {
 	log.Info("Cron job for data collecting preparing")
 
 	c := cron.New()
-	heartbeat := fmt.Sprintf("%d", p.settings.Heartbeat) + "m"
+	heartbeat := fmt.Sprintf("%d", p.settings.Heartbeat) + "s"
 	c.AddFunc("@every "+heartbeat, func() {
 		p.heartbeat()
 	})
-	collect := fmt.Sprintf("%d", p.settings.Collect) + "m"
+	collect := fmt.Sprintf("%d", p.settings.Collect) + "s"
 	c.AddFunc("@every "+collect, func() {
 		p.collect()
 	})

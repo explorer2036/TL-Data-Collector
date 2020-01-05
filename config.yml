@@ -1,4 +1,4 @@
-heartbeat_interval: 5 # the interval time for heartbeat jobs(unit: minute)
-collect_interval: 6 # the interval time for collect jobs(unit: minute)
-gateway_addr: "192.168.0.4:15001" # the gateway address
+heartbeat_interval: 5 # the interval time for heartbeat jobs(unit: second)
+collect_interval: 30 # the interval time for collect jobs(unit: second)
+gateway_addr: "192.168.1.101:15001" # the gateway address
 base_dir: "e:\\collector" # base directory for program files
