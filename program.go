@@ -35,7 +35,6 @@ var (
 
 // Program define Start and Stop methods.
 type Program struct {
-	logFile      *os.File                    // file handler for logger
 	lockFile     string                      // lock file name
 	settings     *config.Config              // the settings for program
 	exit         chan struct{}               // exit signal
@@ -70,7 +69,6 @@ func (p *Program) initLogger() {
 	if err != nil {
 		panic(err)
 	}
-	p.logFile = file
 
 	log.SetOutput(file)
 	log.SetLevel(log.InfoLevel)
@@ -178,11 +176,6 @@ func (p *Program) run() error {
 func (p *Program) Stop(s service.Service) error {
 	// signal the program to exit
 	close(p.exit)
-
-	// close the log file
-	if p.logFile != nil {
-		p.logFile.Close()
-	}
 
 	// close the grpc connection
 	if p.conn != nil {
