@@ -3,19 +3,21 @@ package main
 import (
 	"TL-Data-Collector/config"
 	"TL-Data-Collector/proto/gateway"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"syscall"
 	"time"
-
-	"google.golang.org/grpc/keepalive"
-
-	"google.golang.org/grpc"
 
 	"github.com/kardianos/service"
 	"github.com/robfig/cron"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 )
 
 var (
@@ -74,20 +76,67 @@ func (p *Program) initLogger() {
 	log.SetLevel(log.InfoLevel)
 }
 
+// prepare the files for certification
+func (p *Program) createCredentials() credentials.TransportCredentials {
+	cert, err := tls.LoadX509KeyPair(p.settings.PermFile, p.settings.KeyFile)
+	if err != nil {
+		panic(err)
+	}
+
+	certPool := x509.NewCertPool()
+	ca, err := ioutil.ReadFile(p.settings.CaFile)
+	if err != nil {
+		panic(err)
+	}
+
+	if ok := certPool.AppendCertsFromPEM(ca); !ok {
+		panic("append certs from pem")
+	}
+
+	return credentials.NewTLS(&tls.Config{
+		Certificates: []tls.Certificate{cert},
+		ServerName:   "collector",
+		RootCAs:      certPool,
+	})
+}
+
 // init the report service client
 func (p *Program) initReportClient() {
-	// set up a connection to the server.
-	conn, err := grpc.Dial(
-		p.settings.Gateway,
-		grpc.WithInsecure(),
-		grpc.WithBlock(),
-		grpc.WithTimeout(5*time.Second),
-		// for the communication by the internet, should open the keepalive
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    15 * time.Second,
-			Timeout: 5 * time.Second,
-		}),
-	)
+	var conn *grpc.ClientConn
+
+	var err error
+	if p.settings.TLSSwitch {
+		// set up a connection to the server.
+		conn, err = grpc.Dial(
+			p.settings.Gateway,
+			grpc.WithInsecure(),
+			grpc.WithBlock(),
+			grpc.WithTimeout(5*time.Second),
+			// for the communication by the internet, should open the keepalive
+			grpc.WithKeepaliveParams(keepalive.ClientParameters{
+				Time:    15 * time.Second,
+				Timeout: 5 * time.Second,
+			}),
+		)
+	} else {
+		// create the credentials with the ca files
+		creds := p.createCredentials()
+
+		// set up a connection to the server.
+		conn, err = grpc.Dial(
+			p.settings.Gateway,
+			grpc.WithInsecure(),
+			grpc.WithBlock(),
+			grpc.WithTimeout(5*time.Second),
+			grpc.WithTransportCredentials(creds),
+			// for the communication by the internet, should open the keepalive
+			grpc.WithKeepaliveParams(keepalive.ClientParameters{
+				Time:    15 * time.Second,
+				Timeout: 5 * time.Second,
+			}),
+		)
+	}
+
 	if err != nil {
 		panic(fmt.Sprintf("grpc conn: %v", err))
 	}

@@ -1,25 +1,59 @@
 package entity
 
+// The json format for exporter messages
+// {
+// 	"dtype": "data_metric",
+// 	"action": "insert",
+// 	"userid": "xxxx", // login id - from collector
+// 	"source": "xxxx", // uuid
+// 	"path": "xxxx",
+// 	"time": "xxxx",
+// 	"timestamp": "xxxx", // from collector
+// 	"data": {
+// 		"xxx": "xxxx"
+// 	}
+// }
+
 // Message structure
 type Message struct {
-	UUID string `json:"uuid"`
-	Path string `json:"path"`
-	Data string `json:"data"`
+	Kind      string `json:"dtype"`
+	Action    string `json:"action"`
+	UserID    string `json:"userid"`
+	Source    string `json:"source"`
+	Path      string `json:"path"`
+	Time      string `json:"time"`
+	Timestamp string `json:"timestamp"`
+	Data      string `json:"data"`
 }
 
-// Output structure
-type Output struct {
-	Login string  `json:"login"`
-	UUID  string  `json:"uuid"`
-	Value Message `json:"value"`
-	Time  string  `json:"time"`
-}
+// The yaml format in consul
+// fixed_columns: ["userid", "source", "path", "time", "timestamp"]
+// relations:
+//   - dtype: "data_heartbeat"
+//     table: "heartbeat"
+//     columns: ["status"]
+//     action: "insert"
+
+// The json format
+// {
+//     "dtype": "data_heartbeat",
+//     "action": "insert",
+//     "userid": "xxxx",
+//     "source": "xxxx",
+//     "path": "xxxx",
+//     "timestamp": "xxxx",
+//     "data": {
+//         "status": "OK"
+//     }
+// }
 
 // Heartbeat structure
 type Heartbeat struct {
-	Login string `json:"login"`
-	UUID  string `json:"source"`
-	Path  string `json:"path"`
-	Data  string `json:"data"`
-	Time  string `json:"time"`
+	Kind      string `json:"dtype"`
+	Action    string `json:"action"`
+	UserID    string `json:"userid"`
+	Source    string `json:"source"`
+	Path      string `json:"path"`
+	Data      string `json:"data"`
+	Timestamp string `json:"timestamp"`
 }

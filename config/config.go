@@ -12,6 +12,10 @@ type Config struct {
 	Collect   int    `yaml:"collect_interval"`
 	Gateway   string `yaml:"gateway_addr"`
 	BaseDir   string `yaml:"base_dir"`
+	TLSSwitch bool   `yaml:"tls_switch"`
+	PermFile  string `yaml:"tls_perm"`
+	KeyFile   string `yaml:"tls_key"`
+	CaFile    string `yaml:"tls_ca"`
 }
 
 // ParseYamlFile the config file

@@ -84,17 +84,19 @@ func (p *Program) heartbeat() {
 	login, token, uuid := p.load()
 
 	// create the heartbeat data
-	hb := entity.Heartbeat{
-		Login: login,
-		UUID:  uuid,
-		Path:  "&&heartbeat",
-		Data:  "{\"status\": \"OK\"}",
-		Time:  time.Now().Format(Rfc3339Milli),
+	hearbeat := entity.Heartbeat{
+		Kind:      "data_heartbeat",
+		Action:    "insert",
+		UserID:    login,
+		Source:    uuid,
+		Path:      "&&heartbeat",
+		Data:      "{\"status\": \"OK\"}",
+		Timestamp: time.Now().Format(Rfc3339Milli),
 	}
 
 	// send the heartbeat to gateway
-	if err := p.report(token, &hb); err != nil {
-		log.Errorf("report %v: %v", hb, err)
+	if err := p.report(token, &hearbeat); err != nil {
+		log.Errorf("report %v: %v", hearbeat, err)
 	}
 	log.Info("Heartbeat report - END")
 }
@@ -194,36 +196,24 @@ func (p *Program) parse(folder string) ([]string, error) {
 }
 
 // transfer the data
-func (p *Program) transfer(name string, data []byte, login string, token string, uuid string) error {
+func (p *Program) transfer(name string, data []byte, login string, token string) error {
 	var msgs []entity.Message
 
-	// unmarshal the bytes to message structure
-	if err := json.Unmarshal(data, &msgs); err != nil {
-		// log the decoding exception
-		log.Errorf("unmarshal json file %s: %v", name, err)
-		// but no error is returned (this file will be deleted later)
-		return nil
-	}
-
-	timestamp := time.Now().Format(Rfc3339Milli)
 	for index, msg := range msgs {
 		// check whether data field is a valid json string
 		if json.Valid([]byte(msg.Data)) {
-			op := entity.Output{
-				Login: login,
-				UUID:  uuid,
-				Value: msg,
-				Time:  timestamp,
-			}
+			// these two fields are provided by collector
+			msg.UserID = login
+			msg.Timestamp = time.Now().Format(Rfc3339Milli)
 
 			// send the data to gateway
-			if err := p.report(token, &op); err != nil {
-				log.Errorf("send data to gateway, file: %s index: %d, data: %v, error: %v", name, index, op, err)
+			if err := p.report(token, &msg); err != nil {
+				log.Errorf("send data to gateway, file: %s index: %d, data: %v, error: %v", name, index, msg, err)
 				continue
 			}
 		} else {
 			// if data filed is not a valid json string, skip processing this element in the array
-			log.Errorf("The data field is not a valid json string, file: %s index: %d, data: %s", name, index, msg.Data)
+			log.Errorf("The data field is not a valid json string, file: %s index: %d, data: %s", name, index, msg)
 		}
 	}
 
@@ -231,7 +221,7 @@ func (p *Program) transfer(name string, data []byte, login string, token string,
 }
 
 // process the data file
-func (p *Program) process(folder string, name string, login string, token string, uuid string) {
+func (p *Program) process(folder string, name string, login string, token string) {
 	// concatenate data folder and json file name
 	fullpath := folder + "\\" + name
 	pathPtr, err := syscall.UTF16PtrFromString(fullpath)
@@ -254,7 +244,7 @@ func (p *Program) process(folder string, name string, login string, token string
 		data = data[:done]
 
 		// transfer the messages to gateway
-		err = p.transfer(name, data, login, token, uuid)
+		err = p.transfer(name, data, login, token)
 
 		// close the file first
 		windows.CloseHandle(handle)
@@ -269,17 +259,10 @@ func (p *Program) process(folder string, name string, login string, token string
 	}
 }
 
-// user the 1st and 2nd piece as export and topic
-func (p *Program) topic(name string) (topic string) {
-	pieces := strings.Split(name, "_")
-	// convert to lower case
-	return strings.ToLower(pieces[1])
-}
-
 // collecting messages from data folder and sending to gateway
 func (p *Program) collect() {
 	// load the login id, uuid and token every time
-	login, token, uuid := p.load()
+	login, token, _ := p.load()
 
 	log.Info("Data collecting - START")
 
@@ -303,7 +286,7 @@ func (p *Program) collect() {
 
 	// handle the data files one bye one
 	for _, file := range files {
-		p.process(folder, file, login, token, uuid)
+		p.process(folder, file, login, token)
 	}
 
 	// handle the files
