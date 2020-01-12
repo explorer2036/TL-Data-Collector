@@ -1,7 +1,5 @@
 package entity
 
-import "encoding/json"
-
 // The json format for exporter messages
 // {
 // 	"dtype": "data_metric",
@@ -18,14 +16,14 @@ import "encoding/json"
 
 // Message structure
 type Message struct {
-	Kind      string          `json:"dtype"`
-	Action    string          `json:"action"`
-	UserID    string          `json:"userid"`
-	Source    string          `json:"source"`
-	Path      string          `json:"path"`
-	Time      string          `json:"time"`
-	Timestamp string          `json:"timestamp"`
-	Data      json.RawMessage `json:"data"`
+	Kind      string                 `json:"dtype"`
+	Action    string                 `json:"action"`
+	UserID    string                 `json:"userid"`
+	Source    string                 `json:"source"`
+	Path      string                 `json:"path"`
+	Time      string                 `json:"time"`
+	Timestamp string                 `json:"timestamp"`
+	Data      map[string]interface{} `json:"data"`
 }
 
 // The yaml format in consul

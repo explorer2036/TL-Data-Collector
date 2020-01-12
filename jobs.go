@@ -80,7 +80,7 @@ func (p *Program) load() (string, string, string) {
 
 // write a heartbeat message to gateway
 func (p *Program) heartbeat() {
-	log.Info("Heartbeat report - START")
+	log.Info("heartbeat report - start")
 
 	// load the login id, uuid and token every time
 	login, token, uuid := p.load()
@@ -102,7 +102,7 @@ func (p *Program) heartbeat() {
 	if err := p.report(token, &hearbeat); err != nil {
 		log.Errorf("report %v: %v", hearbeat, err)
 	}
-	log.Info("Heartbeat report - END")
+	log.Info("heartbeat report - end")
 }
 
 // whether the slice contains the target string or not
@@ -167,9 +167,9 @@ func (p *Program) parse(folder string) ([]string, error) {
 			}
 		} else {
 			pieces := strings.Split(fn, "_")
-			// a valid name should be split into 4 pieces by underscore sign
-			// <export>_<topic>_<app>_<unique timestamp>.json
-			if len(pieces) == 4 {
+			// a valid name should be split into 3 pieces by underscore sign
+			// <export>_<app>_<unique timestamp>.json
+			if len(pieces) == 3 {
 				dataFiles = append(dataFiles, name)
 			}
 		}
@@ -182,7 +182,7 @@ func (p *Program) parse(folder string) ([]string, error) {
 
 	// get valid json files for processing, filter by export type and lock
 	vfs := make([]string, 0, maxNumOfFiles)
-	// <export>_<topic>_<app>_<unique timestamp>.json
+	// <export>_<app>_<unique timestamp>.json
 	for _, f := range dataFiles {
 		// convert to lower case
 		export := strings.ToLower(strings.Split(f, "_")[0])
@@ -218,9 +218,6 @@ func validate(m *entity.Message) error {
 	if len(m.Data) == 0 {
 		return errors.New("data is empty")
 	}
-	if json.Valid([]byte(m.Data)) == false {
-		return errors.New("data is invalid json")
-	}
 
 	return nil
 }
@@ -228,6 +225,11 @@ func validate(m *entity.Message) error {
 // transfer the data
 func (p *Program) transfer(name string, data []byte, login string, token string) error {
 	var msgs []entity.Message
+
+	// unmarshal the bytes to message structure
+	if err := json.Unmarshal(data, &msgs); err != nil {
+		return err
+	}
 
 	for index, msg := range msgs {
 		// check whether data field is a valid json string
@@ -280,11 +282,11 @@ func (p *Program) process(folder string, name string, login string, token string
 		windows.CloseHandle(handle)
 
 		if err != nil {
-			log.Errorf("write error occurs in processing file %s: %v", name, err)
+			log.Errorf("error occurs in processing file %s: %v", name, err)
 		} else {
 			// delete this file after processing successfully(no kafka write error occurs)
 			// leave it for next time otherwise
-			windows.DeleteFile(pathPtr)
+			// windows.DeleteFile(pathPtr)
 		}
 	}
 }
@@ -294,7 +296,7 @@ func (p *Program) collect() {
 	// load the login id, uuid and token every time
 	login, token, _ := p.load()
 
-	log.Info("Data collecting - START")
+	log.Info("data collecting - start")
 
 	// retrieve the data folder
 	folder, err := p.dataFolder()
@@ -320,5 +322,5 @@ func (p *Program) collect() {
 	}
 
 	// handle the files
-	log.Info("Data collecting - END")
+	log.Info("data collecting - end")
 }
