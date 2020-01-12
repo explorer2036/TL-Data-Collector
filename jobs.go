@@ -2,9 +2,12 @@ package main
 
 import (
 	"TL-Data-Collector/entity"
+	"TL-Data-Collector/log"
 	"TL-Data-Collector/proto/gateway"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io/ioutil"
 	"path"
 	"runtime"
@@ -12,7 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
 )
 
@@ -53,21 +55,21 @@ func (p *Program) report(token string, v interface{}) error {
 // load login id and token from files every time
 func (p *Program) load() (string, string, string) {
 	// read credential
-	credential, err := ioutil.ReadFile(p.settings.BaseDir + credPath)
+	credential, err := ioutil.ReadFile(p.settings.App.BaseDir + credPath)
 	if err != nil {
 		log.Errorf("read credential file: %v", err)
 		runtime.Goexit()
 	}
 
 	// read token file
-	token, err := ioutil.ReadFile(p.settings.BaseDir + tokenPath)
+	token, err := ioutil.ReadFile(p.settings.App.BaseDir + tokenPath)
 	if err != nil {
 		log.Errorf("read token file: %v", err)
 		runtime.Goexit()
 	}
 
 	// read uuid file
-	uuid, err := ioutil.ReadFile(p.settings.BaseDir + uuidPath)
+	uuid, err := ioutil.ReadFile(p.settings.App.BaseDir + uuidPath)
 	if err != nil {
 		log.Errorf("read uuid file: %v", err)
 		runtime.Goexit()
@@ -85,12 +87,14 @@ func (p *Program) heartbeat() {
 
 	// create the heartbeat data
 	hearbeat := entity.Heartbeat{
-		Kind:      "data_heartbeat",
-		Action:    "insert",
-		UserID:    login,
-		Source:    uuid,
-		Path:      "&&heartbeat",
-		Data:      "{\"status\": \"OK\"}",
+		Kind:   "data_heartbeat",
+		Action: "insert",
+		UserID: login,
+		Source: uuid,
+		Path:   "&&heartbeat",
+		Data: entity.HeartbeatData{
+			Status: "OK",
+		},
 		Timestamp: time.Now().Format(Rfc3339Milli),
 	}
 
@@ -115,7 +119,7 @@ func contains(ss []string, target string) bool {
 
 func (p *Program) dataFolder() (string, error) {
 	// parse the data folder path
-	folder, err := ioutil.ReadFile(p.settings.BaseDir + dataPath)
+	folder, err := ioutil.ReadFile(p.settings.App.BaseDir + dataPath)
 	if err != nil {
 		return "", err
 	}
@@ -195,25 +199,51 @@ func (p *Program) parse(folder string) ([]string, error) {
 	return vfs, nil
 }
 
+func validate(m *entity.Message) error {
+	if m.Kind == "" {
+		return errors.New("dtype is empty")
+	}
+	if m.Action != "insert" && m.Action != "update" {
+		return fmt.Errorf("invalid action: %v", m.Action)
+	}
+	if m.Source == "" {
+		return errors.New("source is empty")
+	}
+	if m.Path == "" {
+		return errors.New("path is empty")
+	}
+	if m.Time == "" {
+		return errors.New("time is empty")
+	}
+	if len(m.Data) == 0 {
+		return errors.New("data is empty")
+	}
+	if json.Valid([]byte(m.Data)) == false {
+		return errors.New("data is invalid json")
+	}
+
+	return nil
+}
+
 // transfer the data
 func (p *Program) transfer(name string, data []byte, login string, token string) error {
 	var msgs []entity.Message
 
 	for index, msg := range msgs {
 		// check whether data field is a valid json string
-		if json.Valid([]byte(msg.Data)) {
-			// these two fields are provided by collector
-			msg.UserID = login
-			msg.Timestamp = time.Now().Format(Rfc3339Milli)
+		if err := validate(&msg); err != nil {
+			log.Errorf("message is invalid, file: %s index: %d, data: %s, error: %v", name, index, msg, err)
+			continue
+		}
 
-			// send the data to gateway
-			if err := p.report(token, &msg); err != nil {
-				log.Errorf("send data to gateway, file: %s index: %d, data: %v, error: %v", name, index, msg, err)
-				continue
-			}
-		} else {
-			// if data filed is not a valid json string, skip processing this element in the array
-			log.Errorf("The data field is not a valid json string, file: %s index: %d, data: %s", name, index, msg)
+		// these two fields are provided by collector
+		msg.UserID = login
+		msg.Timestamp = time.Now().Format(Rfc3339Milli)
+
+		// send the data to gateway
+		if err := p.report(token, &msg); err != nil {
+			log.Errorf("send data to gateway, file: %s index: %d, data: %v, error: %v", name, index, msg, err)
+			continue
 		}
 	}
 

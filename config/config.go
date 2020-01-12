@@ -8,14 +8,34 @@ import (
 
 // Config structure for server
 type Config struct {
+	App appStruct `yaml:"app"`
+	TLS tlsStruct `yaml:"tls"`
+	Log logStruct `yaml:"log"`
+}
+
+type appStruct struct {
 	Heartbeat int    `yaml:"heartbeat_interval"`
 	Collect   int    `yaml:"collect_interval"`
 	Gateway   string `yaml:"gateway_addr"`
 	BaseDir   string `yaml:"base_dir"`
-	TLSSwitch bool   `yaml:"tls_switch"`
-	PermFile  string `yaml:"tls_perm"`
-	KeyFile   string `yaml:"tls_key"`
-	CaFile    string `yaml:"tls_ca"`
+}
+
+type tlsStruct struct {
+	Switch bool   `yaml:"switch"`
+	Perm   string `yaml:"perm"`
+	Key    string `yaml:"key"`
+	Ca     string `yaml:"ca"`
+}
+
+// logStruct defines fields for log
+type logStruct struct {
+	OutputLevel        string `yaml:"output_level"`
+	OutputPath         string `yaml:"output_path"`
+	RotationPath       string `yaml:"rotation_path"`
+	RotationMaxSize    int    `yaml:"rotation_max_size"`
+	RotationMaxAge     int    `yaml:"rotation_max_age"`
+	RotationMaxBackups int    `yaml:"rotation_max_backups"`
+	JSONEncoding       bool   `yaml:"json_encoding"`
 }
 
 // ParseYamlFile the config file

@@ -2,6 +2,7 @@ package main
 
 import (
 	"TL-Data-Collector/config"
+	"TL-Data-Collector/log"
 	"TL-Data-Collector/proto/gateway"
 	"crypto/tls"
 	"crypto/x509"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/kardianos/service"
 	"github.com/robfig/cron"
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -35,6 +35,17 @@ var (
 	uuidPath = "\\conf\\uuid"
 )
 
+const (
+	// GRPCClientDialTimeout - the timeout for client to dial the server
+	GRPCClientDialTimeout = 5
+	// GRPCClientKeepaliveTime - After a duration of this time if the client doesn't see any activity it
+	// pings the server to see if the transport is still alive.
+	GRPCClientKeepaliveTime = 15
+	// GRPCClientKeepaliveTimeout - After having pinged for keepalive check, the client waits for a duration
+	// of Timeout and if no activity is seen even after that the connection is closed.
+	GRPCClientKeepaliveTimeout = 5
+)
+
 // Program define Start and Stop methods.
 type Program struct {
 	lockFile     string                      // lock file name
@@ -52,39 +63,15 @@ func exists(path string) bool {
 	return true
 }
 
-// initialize the logger file and set log level
-func (p *Program) initLogger() {
-	// e.g. logs\2019-06\2019-06-19.txt
-	day := time.Now().Format("2006-01-02")
-	dir := fmt.Sprintf("%s\\logs", p.settings.BaseDir)
-
-	// create directoy if not exists
-	if !exists(dir) {
-		if err := os.Mkdir(dir, 0660); err != nil {
-			panic(err)
-		}
-	}
-
-	name := fmt.Sprintf("%s\\%s", dir, day)
-	// open the log file
-	file, err := os.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
-	if err != nil {
-		panic(err)
-	}
-
-	log.SetOutput(file)
-	log.SetLevel(log.InfoLevel)
-}
-
 // prepare the files for certification
 func (p *Program) createCredentials() credentials.TransportCredentials {
-	cert, err := tls.LoadX509KeyPair(p.settings.PermFile, p.settings.KeyFile)
+	cert, err := tls.LoadX509KeyPair(p.settings.TLS.Perm, p.settings.TLS.Key)
 	if err != nil {
 		panic(err)
 	}
 
 	certPool := x509.NewCertPool()
-	ca, err := ioutil.ReadFile(p.settings.CaFile)
+	ca, err := ioutil.ReadFile(p.settings.TLS.Ca)
 	if err != nil {
 		panic(err)
 	}
@@ -102,41 +89,23 @@ func (p *Program) createCredentials() credentials.TransportCredentials {
 
 // init the report service client
 func (p *Program) initReportClient() {
-	var conn *grpc.ClientConn
-
-	var err error
-	if p.settings.TLSSwitch {
-		// set up a connection to the server.
-		conn, err = grpc.Dial(
-			p.settings.Gateway,
-			grpc.WithInsecure(),
-			grpc.WithBlock(),
-			grpc.WithTimeout(5*time.Second),
-			// for the communication by the internet, should open the keepalive
-			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:    15 * time.Second,
-				Timeout: 5 * time.Second,
-			}),
-		)
-	} else {
-		// create the credentials with the ca files
+	// prepare the dial options for grpc client
+	opts := []grpc.DialOption{}
+	opts = append(opts, grpc.WithInsecure())
+	opts = append(opts, grpc.WithBlock())
+	opts = append(opts, grpc.WithTimeout(GRPCClientDialTimeout*time.Second))
+	opts = append(opts, grpc.WithKeepaliveParams(keepalive.ClientParameters{
+		Time:    GRPCClientKeepaliveTime * time.Second,
+		Timeout: GRPCClientKeepaliveTimeout * time.Second,
+	}))
+	if p.settings.TLS.Switch {
+		// prepare the credentials with the ca files
 		creds := p.createCredentials()
-
-		// set up a connection to the server.
-		conn, err = grpc.Dial(
-			p.settings.Gateway,
-			grpc.WithInsecure(),
-			grpc.WithBlock(),
-			grpc.WithTimeout(5*time.Second),
-			grpc.WithTransportCredentials(creds),
-			// for the communication by the internet, should open the keepalive
-			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:    15 * time.Second,
-				Timeout: 5 * time.Second,
-			}),
-		)
+		opts = append(opts, grpc.WithTransportCredentials(creds))
 	}
 
+	// set up a connection to the server.
+	conn, err := grpc.Dial(p.settings.App.Gateway, opts...)
 	if err != nil {
 		panic(fmt.Sprintf("grpc conn: %v", err))
 	}
@@ -154,14 +123,11 @@ func NewProgram(settings *config.Config) *Program {
 		exit:     make(chan struct{}),
 	}
 
-	// init the logger
-	program.initLogger()
-
 	// init the grpc connection and report client
 	program.initReportClient()
 
 	// lock file name
-	program.lockFile = settings.BaseDir + "\\tmp.lock"
+	program.lockFile = settings.App.BaseDir + "\\tmp.lock"
 
 	return program
 }
@@ -193,11 +159,11 @@ func (p *Program) run() error {
 	log.Info("Cron job for data collecting preparing")
 
 	c := cron.New()
-	heartbeat := fmt.Sprintf("%d", p.settings.Heartbeat) + "s"
+	heartbeat := fmt.Sprintf("%d", p.settings.App.Heartbeat) + "s"
 	c.AddFunc("@every "+heartbeat, func() {
 		p.heartbeat()
 	})
-	collect := fmt.Sprintf("%d", p.settings.Collect) + "s"
+	collect := fmt.Sprintf("%d", p.settings.App.Collect) + "s"
 	c.AddFunc("@every "+collect, func() {
 		p.collect()
 	})

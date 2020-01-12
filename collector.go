@@ -2,15 +2,37 @@ package main
 
 import (
 	"TL-Data-Collector/config"
+	"TL-Data-Collector/log"
 	"flag"
 
 	"github.com/kardianos/service"
-	log "github.com/sirupsen/logrus"
 )
 
 var (
 	action = flag.String("action", "", "Service action for collector: start, stop, restart, install, uninstall")
 )
+
+// updateOptions updates the log options
+func updateOptions(scope string, options *log.Options, settings *config.Config) error {
+	if settings.Log.OutputPath != "" {
+		options.OutputPaths = []string{settings.Log.OutputPath}
+	}
+	if settings.Log.RotationPath != "" {
+		options.RotateOutputPath = settings.Log.RotationPath
+	}
+	options.RotationMaxBackups = settings.Log.RotationMaxBackups
+	options.RotationMaxSize = settings.Log.RotationMaxSize
+	options.RotationMaxAge = settings.Log.RotationMaxAge
+	options.JSONEncoding = settings.Log.JSONEncoding
+	level, err := options.ConvertLevel(settings.Log.OutputLevel)
+	if err != nil {
+		return err
+	}
+	options.SetOutputLevel(scope, level)
+	options.SetLogCallers(scope, true)
+
+	return nil
+}
 
 func main() {
 	flag.Parse()
@@ -19,6 +41,16 @@ func main() {
 	var settings config.Config
 	// parse the config file
 	if err := config.ParseYamlFile("config.yml", &settings); err != nil {
+		panic(err)
+	}
+
+	// init and update the log options
+	logOptions := log.DefaultOptions()
+	if err := updateOptions("default", logOptions, &settings); err != nil {
+		panic(err)
+	}
+	// configure the log options
+	if err := log.Configure(logOptions); err != nil {
 		panic(err)
 	}
 
@@ -49,8 +81,8 @@ func main() {
 		return
 	}
 
-	// start the service
+	// start the application
 	if err := s.Run(); err != nil {
-		log.Error(err)
+		log.Errorf("start the application: %v", err)
 	}
 }

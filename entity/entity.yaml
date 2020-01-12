@@ -1,6 +1,0 @@
-fixed_columns: ["userid", "source", "path", "time", "timestamp"]
-relations:
-  - dtype: "data_heartbeat"
-    table: "heartbeat"
-    columns: ["status"]
-    action: "insert"
