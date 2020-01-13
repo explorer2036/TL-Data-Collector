@@ -32,7 +32,6 @@ type Message struct {
 //   - dtype: "data_heartbeat"
 //     table: "heartbeat"
 //     columns: ["status"]
-//     action: "insert"
 
 // The json format
 // {
