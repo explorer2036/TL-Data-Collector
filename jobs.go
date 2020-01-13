@@ -286,7 +286,7 @@ func (p *Program) process(folder string, name string, login string, token string
 		} else {
 			// delete this file after processing successfully(no kafka write error occurs)
 			// leave it for next time otherwise
-			// windows.DeleteFile(pathPtr)
+			windows.DeleteFile(pathPtr)
 		}
 	}
 }
