@@ -288,13 +288,13 @@ func (p *Program) transfer(name string, data []byte, login string) error {
 func (p *Program) process(folder string, name string, login string) {
 	// concatenate data folder and json file name
 	fullpath := folder + "\\" + name
-	pathPtr, err := syscall.UTF16PtrFromString(fullpath)
+	path, err := syscall.UTF16PtrFromString(fullpath)
 	if err != nil {
 		return
 	}
 
 	// try to open this file exclusively by windows api, see https://golang.org/src/syscall/syscall_windows.go#L248
-	handle, err := windows.CreateFile(pathPtr, syscall.GENERIC_READ, 0, nil, syscall.OPEN_EXISTING, syscall.FILE_ATTRIBUTE_NORMAL, 0)
+	handle, err := windows.CreateFile(path, syscall.GENERIC_READ, 0, nil, syscall.OPEN_EXISTING, syscall.FILE_ATTRIBUTE_NORMAL, 0)
 	if err != nil {
 		log.Infof("%s in use by another process", name)
 	} else {
@@ -308,18 +308,14 @@ func (p *Program) process(folder string, name string, login string) {
 		data = data[:done]
 
 		// transfer the messages to gateway
-		err = p.transfer(name, data, login)
+		if err := p.transfer(name, data, login); err != nil {
+			log.Errorf("error occurs in processing file %s: %v", name, err)
+		}
 
 		// close the file first
 		windows.CloseHandle(handle)
-
-		if err != nil {
-			log.Errorf("error occurs in processing file %s: %v", name, err)
-		} else {
-			// delete this file after processing successfully(no kafka write error occurs)
-			// leave it for next time otherwise
-			windows.DeleteFile(pathPtr)
-		}
+		// delete the json file
+		windows.DeleteFile(path)
 	}
 }
 
