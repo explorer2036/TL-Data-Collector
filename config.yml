@@ -1,6 +1,6 @@
 app:
-  heartbeat_interval: 5 # the interval time for heartbeat jobs(unit: second)
-  collect_interval: 30 # the interval time for collect jobs(unit: second)
+  heartbeat_interval: 2 # the interval time for heartbeat jobs(>=10, unit: second)
+  collect_interval: 30 # the interval time for collect jobs(>=30 unit: second)
   gateway_addr: "192.168.0.4:15001" # the gateway address
   base_dir: "e:\\collector" # base directory for program files
 

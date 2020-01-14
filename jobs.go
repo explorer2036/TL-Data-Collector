@@ -28,6 +28,11 @@ var (
 	exportTypes = []string{"data"}
 )
 
+const (
+	// DefaultGRPCTimeout - default timeout for sending grpc messages
+	DefaultGRPCTimeout = 5
+)
+
 // report data by the grpc connection
 func (p *Program) report(token string, v interface{}) error {
 	// marshal the value to json
@@ -37,7 +42,7 @@ func (p *Program) report(token string, v interface{}) error {
 	}
 
 	// context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*DefaultGRPCTimeout)
 	defer cancel()
 
 	// prepare the request
@@ -45,26 +50,33 @@ func (p *Program) report(token string, v interface{}) error {
 		Token: token,
 		Data:  data,
 	}
-	if _, err := p.reportClient.Report(ctx, &request); err != nil {
+	reply, err := p.reportClient.Report(ctx, &request)
+	if err != nil {
 		return err
+	}
+	if reply.Status != gateway.Status_Success {
+		return fmt.Errorf("the response status: %v", reply.Status)
 	}
 
 	return nil
 }
 
-// load login id and token from files every time
-func (p *Program) load() (string, string, string) {
-	// read credential
-	credential, err := ioutil.ReadFile(p.settings.App.BaseDir + credPath)
-	if err != nil {
-		log.Errorf("read credential file: %v", err)
-		runtime.Goexit()
-	}
-
+func (p *Program) loadToken() (string, error) {
 	// read token file
 	token, err := ioutil.ReadFile(p.settings.App.BaseDir + tokenPath)
 	if err != nil {
 		log.Errorf("read token file: %v", err)
+		return "", err
+	}
+	return string(token), nil
+}
+
+// load userid and uuid from files every time
+func (p *Program) load() (string, string) {
+	// read credential
+	credential, err := ioutil.ReadFile(p.settings.App.BaseDir + credPath)
+	if err != nil {
+		log.Errorf("read credential file: %v", err)
 		runtime.Goexit()
 	}
 
@@ -75,7 +87,7 @@ func (p *Program) load() (string, string, string) {
 		runtime.Goexit()
 	}
 
-	return string(credential), string(token), string(uuid)
+	return string(credential), string(uuid)
 }
 
 // write a heartbeat message to gateway
@@ -83,7 +95,7 @@ func (p *Program) heartbeat() {
 	log.Info("heartbeat report - start")
 
 	// load the login id, uuid and token every time
-	login, token, uuid := p.load()
+	login, uuid := p.load()
 
 	// create the heartbeat data
 	hearbeat := entity.Heartbeat{
@@ -98,10 +110,11 @@ func (p *Program) heartbeat() {
 		Timestamp: time.Now().Format(Rfc3339Milli),
 	}
 
-	// send the heartbeat to gateway
-	if err := p.report(token, &hearbeat); err != nil {
-		log.Errorf("report %v: %v", hearbeat, err)
+	// try send the data to gateway
+	if err := p.flush(&hearbeat); err != nil {
+		log.Errorf("send data to gateway, data: %v, error: %v", hearbeat, err)
 	}
+
 	log.Info("heartbeat report - end")
 }
 
@@ -222,8 +235,20 @@ func validate(m *entity.Message) error {
 	return nil
 }
 
+// flush the message to gateway
+func (p *Program) flush(v interface{}) error {
+	// refresh the token
+	token, err := p.loadToken()
+	if err != nil {
+		return err
+	}
+
+	// try send the data to gateway
+	return p.report(token, v)
+}
+
 // transfer the data
-func (p *Program) transfer(name string, data []byte, login string, token string) error {
+func (p *Program) transfer(name string, data []byte, login string) error {
 	var msgs []entity.Message
 
 	// unmarshal the bytes to message structure
@@ -242,10 +267,17 @@ func (p *Program) transfer(name string, data []byte, login string, token string)
 		msg.UserID = login
 		msg.Timestamp = time.Now().Format(Rfc3339Milli)
 
-		// send the data to gateway
-		if err := p.report(token, &msg); err != nil {
-			log.Errorf("send data to gateway, file: %s index: %d, data: %v, error: %v", name, index, msg, err)
-			continue
+		for {
+			// try send the data to gateway
+			if err := p.flush(&msg); err != nil {
+				log.Errorf("send data to gateway, file: %s index: %d, data: %v, error: %v", name, index, msg, err)
+
+				// retry again until sending success
+				time.Sleep(2 * time.Second)
+				continue
+			}
+
+			break
 		}
 	}
 
@@ -253,7 +285,7 @@ func (p *Program) transfer(name string, data []byte, login string, token string)
 }
 
 // process the data file
-func (p *Program) process(folder string, name string, login string, token string) {
+func (p *Program) process(folder string, name string, login string) {
 	// concatenate data folder and json file name
 	fullpath := folder + "\\" + name
 	pathPtr, err := syscall.UTF16PtrFromString(fullpath)
@@ -276,7 +308,7 @@ func (p *Program) process(folder string, name string, login string, token string
 		data = data[:done]
 
 		// transfer the messages to gateway
-		err = p.transfer(name, data, login, token)
+		err = p.transfer(name, data, login)
 
 		// close the file first
 		windows.CloseHandle(handle)
@@ -293,8 +325,8 @@ func (p *Program) process(folder string, name string, login string, token string
 
 // collecting messages from data folder and sending to gateway
 func (p *Program) collect() {
-	// load the login id, uuid and token every time
-	login, token, _ := p.load()
+	// load the login id, uuid every time
+	login, _ := p.load()
 
 	log.Info("data collecting - start")
 
@@ -318,7 +350,7 @@ func (p *Program) collect() {
 
 	// handle the data files one bye one
 	for _, file := range files {
-		p.process(folder, file, login, token)
+		p.process(folder, file, login)
 	}
 
 	// handle the files

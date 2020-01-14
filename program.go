@@ -44,6 +44,11 @@ const (
 	// GRPCClientKeepaliveTimeout - After having pinged for keepalive check, the client waits for a duration
 	// of Timeout and if no activity is seen even after that the connection is closed.
 	GRPCClientKeepaliveTimeout = 5
+
+	// DefaultHeartbeatInterval - the default interval time for heartbeat jobs
+	DefaultHeartbeatInterval = 10
+	// DefaultCollectInterval - the default interval time for collect jobs
+	DefaultCollectInterval = 30
 )
 
 // Program define Start and Stop methods.
@@ -91,9 +96,6 @@ func (p *Program) createCredentials() credentials.TransportCredentials {
 func (p *Program) initReportClient() {
 	// prepare the dial options for grpc client
 	opts := []grpc.DialOption{}
-	opts = append(opts, grpc.WithInsecure())
-	opts = append(opts, grpc.WithBlock())
-	opts = append(opts, grpc.WithTimeout(GRPCClientDialTimeout*time.Second))
 	opts = append(opts, grpc.WithKeepaliveParams(keepalive.ClientParameters{
 		Time:    GRPCClientKeepaliveTime * time.Second,
 		Timeout: GRPCClientKeepaliveTimeout * time.Second,
@@ -102,6 +104,8 @@ func (p *Program) initReportClient() {
 		// prepare the credentials with the ca files
 		creds := p.createCredentials()
 		opts = append(opts, grpc.WithTransportCredentials(creds))
+	} else {
+		opts = append(opts, grpc.WithInsecure())
 	}
 
 	// set up a connection to the server.
@@ -157,6 +161,13 @@ func (p *Program) run() error {
 
 	// try to start a cron job for data collecting
 	log.Info("Cron job for data collecting preparing")
+
+	if p.settings.App.Heartbeat < DefaultHeartbeatInterval {
+		p.settings.App.Heartbeat = DefaultHeartbeatInterval
+	}
+	if p.settings.App.Collect < DefaultCollectInterval {
+		p.settings.App.Collect = DefaultCollectInterval
+	}
 
 	c := cron.New()
 	heartbeat := fmt.Sprintf("%d", p.settings.App.Heartbeat) + "s"
