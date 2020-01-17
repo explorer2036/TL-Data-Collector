@@ -4,16 +4,19 @@ import (
 	"TL-Data-Collector/config"
 	"TL-Data-Collector/log"
 	"TL-Data-Collector/proto/gateway"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/emicklei/go-restful"
 	"github.com/kardianos/service"
-	"github.com/robfig/cron"
 	"golang.org/x/sys/windows"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -21,16 +24,10 @@ import (
 )
 
 var (
-	// assume that there will be 100 json files at most
-	maxNumOfFiles = 100
 	// assume that the file size won't exceed 1MB
 	maxFileSize = 1024 * 1024
 	// data file path
 	dataPath = "\\conf\\appdata.txt"
-	// credential file path
-	credPath = "\\conf\\credential"
-	// token file path
-	tokenPath = "\\conf\\token"
 	// uuid file path
 	uuidPath = "\\conf\\uuid"
 )
@@ -44,20 +41,19 @@ const (
 	// GRPCClientKeepaliveTimeout - After having pinged for keepalive check, the client waits for a duration
 	// of Timeout and if no activity is seen even after that the connection is closed.
 	GRPCClientKeepaliveTimeout = 5
-
-	// DefaultHeartbeatInterval - the default interval time for heartbeat jobs
-	DefaultHeartbeatInterval = 10
-	// DefaultCollectInterval - the default interval time for collect jobs
-	DefaultCollectInterval = 30
 )
 
 // Program define Start and Stop methods.
 type Program struct {
-	lockFile     string                      // lock file name
-	settings     *config.Config              // the settings for program
-	exit         chan struct{}               // exit signal
-	conn         *grpc.ClientConn            // grpc connection
-	reportClient gateway.ReportServiceClient // report client
+	lockFile      string                // lock file name
+	settings      *config.Config        // the settings for program
+	exit          chan struct{}         // exit signal
+	conn          *grpc.ClientConn      // grpc connection
+	serviceClient gateway.ServiceClient // gateway service client
+	httpServer    *http.Server          // http server for login ui
+
+	user  User // the user's information for authentization
+	ready bool // whether it's ready to send messages to gateway
 }
 
 // check if the path exists or not
@@ -87,13 +83,13 @@ func (p *Program) createCredentials() credentials.TransportCredentials {
 
 	return credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{cert},
-		ServerName:   "collector",
+		ServerName:   "TL-Data-Collector",
 		RootCAs:      certPool,
 	})
 }
 
-// init the report service client
-func (p *Program) initReportClient() {
+// init the service client
+func (p *Program) initServiceClient() {
 	// prepare the dial options for grpc client
 	opts := []grpc.DialOption{}
 	opts = append(opts, grpc.WithKeepaliveParams(keepalive.ClientParameters{
@@ -116,8 +112,8 @@ func (p *Program) initReportClient() {
 	// update the connection
 	p.conn = conn
 
-	// new report service clint
-	p.reportClient = gateway.NewReportServiceClient(conn)
+	// new service clint
+	p.serviceClient = gateway.NewServiceClient(conn)
 }
 
 // NewProgram create a program for crob jobs
@@ -127,8 +123,8 @@ func NewProgram(settings *config.Config) *Program {
 		exit:     make(chan struct{}),
 	}
 
-	// init the grpc connection and report client
-	program.initReportClient()
+	// init the grpc connection and service client
+	program.initServiceClient()
 
 	// lock file name
 	program.lockFile = settings.App.BaseDir + "\\tmp.lock"
@@ -150,49 +146,117 @@ func (p *Program) Start(s service.Service) error {
 	return nil
 }
 
+// start a cron job
+func startCronJob(ctx context.Context, wg *sync.WaitGroup, interval int, f func()) {
+	defer wg.Done()
+
+	// new a timer for heartbeat
+	ticker := time.NewTimer(time.Second * time.Duration(interval))
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			f()
+		case <-ctx.Done():
+			log.Info("cron job goroutine is exited")
+			return
+		}
+
+		// reset the timer
+		ticker.Reset(time.Second * time.Duration(interval))
+	}
+}
+
+// newContainer returns a restful container with routes
+func (p *Program) newContainer() *restful.Container {
+	container := restful.NewContainer()
+
+	ws := new(restful.WebService)
+	ws.Path("/").Doc("root").
+		Consumes(restful.MIME_XML, restful.MIME_JSON).
+		Produces(restful.MIME_JSON, restful.MIME_XML)
+
+	ws.Route(ws.POST("/login").To(p.Login)) // user login routes
+
+	container.Add(ws)
+
+	return container
+}
+
+// start the http server
+func (p *Program) startServer(wg *sync.WaitGroup) {
+	// start the http server
+	s := &http.Server{
+		Addr:    p.settings.App.Server,
+		Handler: p.newContainer(),
+	}
+	p.httpServer = s
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := s.ListenAndServe(); err != nil {
+			log.Info("http server is closed")
+			return
+		}
+	}()
+}
+
 // run the service logic
 func (p *Program) run() error {
 	// check if the program is already running
 	handle, err := p.hasLockfile()
 	if err != nil {
-		log.Info("A collector process is already running")
+		log.Error("A collector process is already running")
 		os.Exit(1)
 	}
 
-	// try to start a cron job for data collecting
-	log.Info("Cron job for data collecting preparing")
-
-	if p.settings.App.Heartbeat < DefaultHeartbeatInterval {
-		p.settings.App.Heartbeat = DefaultHeartbeatInterval
-	}
-	if p.settings.App.Collect < DefaultCollectInterval {
-		p.settings.App.Collect = DefaultCollectInterval
+	// check if it needs to login automatically
+	if exists(encryptedFile) {
+		if err := p.loginByFile(); err != nil {
+			log.Errorf("login by encrypt file: %v", err)
+			os.Exit(1)
+		}
 	}
 
-	c := cron.New()
-	heartbeat := fmt.Sprintf("%d", p.settings.App.Heartbeat) + "s"
-	c.AddFunc("@every "+heartbeat, func() {
-		p.heartbeat()
-	})
-	collect := fmt.Sprintf("%d", p.settings.App.Collect) + "s"
-	c.AddFunc("@every "+collect, func() {
-		p.collect()
-	})
-	c.Start()
+	// context for controlling the goroutines
+	ctx, cancel := context.WithCancel(context.Background())
 
-	log.Info("Cron job for data collecting started")
+	var wg sync.WaitGroup
+	// start the http server
+	p.startServer(&wg)
+
+	wg.Add(1)
+	// start the heartbeat goroutine
+	go startCronJob(ctx, &wg, p.settings.App.Heartbeat, p.heartbeat)
+
+	wg.Add(1)
+	// start the collect goroutine
+	go startCronJob(ctx, &wg, p.settings.App.Collect, p.collect)
 
 	// block until receive a exit signal
 	for {
 		select {
 		case <-p.exit:
+			// flush the log
+			log.Sync()
+
+			start := time.Now()
+
+			// stop the http server
+			p.httpServer.Shutdown(context.Background())
+
 			// stop the cron job
-			c.Stop()
+			cancel()
+
+			// wait for all the goroutines exit
+			wg.Wait()
 
 			// close the lock file
 			windows.CloseHandle(handle)
 
-			log.Info("Cron job for data collecting ended")
+			log.Infof("shut down takes time: %v", time.Now().Sub(start))
 			return nil
 		}
 	}

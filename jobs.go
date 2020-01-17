@@ -1,6 +1,7 @@
 package main
 
 import (
+	"TL-Data-Collector/crypto"
 	"TL-Data-Collector/entity"
 	"TL-Data-Collector/log"
 	"TL-Data-Collector/proto/gateway"
@@ -10,7 +11,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -34,7 +34,7 @@ const (
 )
 
 // report data by the grpc connection
-func (p *Program) report(token string, v interface{}) error {
+func (p *Program) report(v interface{}) error {
 	// marshal the value to json
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -47,62 +47,87 @@ func (p *Program) report(token string, v interface{}) error {
 
 	// prepare the request
 	request := gateway.ReportRequest{
-		Token: token,
-		Data:  data,
+		ApplicationId: p.settings.App.Application,
+		LoginId:       p.user.LoginId,
+		Token:         p.user.Token,
+		Data:          data,
 	}
-	reply, err := p.reportClient.Report(ctx, &request)
+	reply, err := p.serviceClient.Report(ctx, &request)
 	if err != nil {
 		return err
 	}
 	if reply.Status != gateway.Status_Success {
-		return fmt.Errorf("the response status: %v", reply.Status)
+		return fmt.Errorf("status: %v, message: %v", reply.Status, reply.Message)
 	}
 
 	return nil
 }
 
-func (p *Program) loadToken() (string, error) {
-	// read token file
-	token, err := ioutil.ReadFile(p.settings.App.BaseDir + tokenPath)
+// login by the encrypted file
+func (p *Program) loginByFile() error {
+	// read the username and password
+	s, err := crypto.DecryptFile(encryptedFile, privateKey)
 	if err != nil {
-		log.Errorf("read token file: %v", err)
-		return "", err
+		return err
 	}
-	return string(token), nil
+
+	// login with username and password
+	parts := strings.Split(string(s), ":")
+	reply, err := p.login(parts[0], parts[1])
+	if err != nil {
+		return err
+	}
+
+	// update the user's information
+	p.user.LoginId = parts[0]
+	p.user.Password = parts[1]
+	p.user.Token = reply.Token
+
+	// mark ready to send messages
+	p.ready = true
+
+	return nil
 }
 
-// load userid and uuid from files every time
-func (p *Program) load() (string, string) {
-	// read credential
-	credential, err := ioutil.ReadFile(p.settings.App.BaseDir + credPath)
-	if err != nil {
-		log.Errorf("read credential file: %v", err)
-		runtime.Goexit()
+func (p *Program) flush(v interface{}) error {
+	// send the messages to gateway
+	if err := p.report(v); err != nil {
+		// check if the token is refused
+		if strings.Contains(err.Error(), "status code: 401") {
+			// login by the encrypted file
+			if ierr := p.loginByFile(); ierr != nil {
+				log.Errorf("login by ecnrypted file: %v", ierr)
+			}
+		}
+
+		return err
 	}
 
-	// read uuid file
-	uuid, err := ioutil.ReadFile(p.settings.App.BaseDir + uuidPath)
-	if err != nil {
-		log.Errorf("read uuid file: %v", err)
-		runtime.Goexit()
-	}
-
-	return string(credential), string(uuid)
+	return nil
 }
 
 // write a heartbeat message to gateway
 func (p *Program) heartbeat() {
 	log.Info("heartbeat report - start")
 
-	// load the login id, uuid and token every time
-	login, uuid := p.load()
+	if p.ready == false {
+		log.Warn("hearbeat report - user hasn't login")
+		return
+	}
+
+	// load the uuid every time
+	uuid, err := ioutil.ReadFile(p.settings.App.BaseDir + uuidPath)
+	if err != nil {
+		log.Errorf("read uuid file: %v", err)
+		return
+	}
 
 	// create the heartbeat data
 	hearbeat := entity.Heartbeat{
 		Kind:   "data_heartbeat",
 		Action: "insert",
-		UserID: login,
-		Source: uuid,
+		UserID: p.user.LoginId,
+		Source: string(uuid),
 		Path:   "&&heartbeat",
 		Data: entity.HeartbeatData{
 			Status: "OK",
@@ -113,6 +138,7 @@ func (p *Program) heartbeat() {
 	// try send the data to gateway
 	if err := p.flush(&hearbeat); err != nil {
 		log.Errorf("send data to gateway, data: %v, error: %v", hearbeat, err)
+		return
 	}
 
 	log.Info("heartbeat report - end")
@@ -130,15 +156,6 @@ func contains(ss []string, target string) bool {
 	return b
 }
 
-func (p *Program) dataFolder() (string, error) {
-	// parse the data folder path
-	folder, err := ioutil.ReadFile(p.settings.App.BaseDir + dataPath)
-	if err != nil {
-		return "", err
-	}
-	return string(folder), nil
-}
-
 // parse the valid data files
 func (p *Program) parse(folder string) ([]string, error) {
 	// collect the names of json files in data folder
@@ -146,7 +163,8 @@ func (p *Program) parse(folder string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	jsons := make([]string, 0, maxNumOfFiles)
+
+	jsons := []string{}
 	for _, file := range files {
 		name := file.Name()
 		if path.Ext(name) == ".json" {
@@ -158,8 +176,9 @@ func (p *Program) parse(folder string) ([]string, error) {
 	lock := false
 	// the types that have been locked
 	lockTypes := make([]string, 0, len(exportTypes))
+
 	// the other json files
-	dataFiles := make([]string, 0, maxNumOfFiles)
+	dataFiles := []string{}
 	for _, name := range jsons {
 		fn := strings.Split(name, ".")[0]
 		// check if it's lock file
@@ -194,7 +213,7 @@ func (p *Program) parse(folder string) ([]string, error) {
 	}
 
 	// get valid json files for processing, filter by export type and lock
-	vfs := make([]string, 0, maxNumOfFiles)
+	vfs := []string{}
 	// <export>_<app>_<unique timestamp>.json
 	for _, f := range dataFiles {
 		// convert to lower case
@@ -235,20 +254,8 @@ func validate(m *entity.Message) error {
 	return nil
 }
 
-// flush the message to gateway
-func (p *Program) flush(v interface{}) error {
-	// refresh the token
-	token, err := p.loadToken()
-	if err != nil {
-		return err
-	}
-
-	// try send the data to gateway
-	return p.report(token, v)
-}
-
 // transfer the data
-func (p *Program) transfer(name string, data []byte, login string) error {
+func (p *Program) transfer(name string, data []byte) error {
 	var msgs []entity.Message
 
 	// unmarshal the bytes to message structure
@@ -264,7 +271,7 @@ func (p *Program) transfer(name string, data []byte, login string) error {
 		}
 
 		// these two fields are provided by collector
-		msg.UserID = login
+		msg.UserID = p.user.LoginId
 		msg.Timestamp = time.Now().Format(Rfc3339Milli)
 
 		for {
@@ -285,7 +292,7 @@ func (p *Program) transfer(name string, data []byte, login string) error {
 }
 
 // process the data file
-func (p *Program) process(folder string, name string, login string) {
+func (p *Program) process(folder string, name string) {
 	// concatenate data folder and json file name
 	fullpath := folder + "\\" + name
 	path, err := syscall.UTF16PtrFromString(fullpath)
@@ -308,7 +315,7 @@ func (p *Program) process(folder string, name string, login string) {
 		data = data[:done]
 
 		// transfer the messages to gateway
-		if err := p.transfer(name, data, login); err != nil {
+		if err := p.transfer(name, data); err != nil {
 			log.Errorf("error occurs in processing file %s: %v", name, err)
 		}
 
@@ -321,20 +328,22 @@ func (p *Program) process(folder string, name string, login string) {
 
 // collecting messages from data folder and sending to gateway
 func (p *Program) collect() {
-	// load the login id, uuid every time
-	login, _ := p.load()
-
 	log.Info("data collecting - start")
 
-	// retrieve the data folder
-	folder, err := p.dataFolder()
+	if p.ready == false {
+		log.Warn("data collecting - user hasn't login")
+		return
+	}
+
+	// parse the data folder path
+	folder, err := ioutil.ReadFile(p.settings.App.BaseDir + dataPath)
 	if err != nil {
-		log.Errorf("parse to retrieve files: %v", err)
+		log.Errorf("read the file %s: %v", dataPath, err)
 		return
 	}
 
 	// parse the valid data files
-	files, err := p.parse(folder)
+	files, err := p.parse(string(folder))
 	if err != nil {
 		log.Errorf("parse to retrieve files: %v", err)
 		return
@@ -346,7 +355,7 @@ func (p *Program) collect() {
 
 	// handle the data files one bye one
 	for _, file := range files {
-		p.process(folder, file, login)
+		p.process(string(folder), file)
 	}
 
 	// handle the files

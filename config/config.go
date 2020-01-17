@@ -14,10 +14,12 @@ type Config struct {
 }
 
 type appStruct struct {
-	Heartbeat int    `yaml:"heartbeat_interval"`
-	Collect   int    `yaml:"collect_interval"`
-	Gateway   string `yaml:"gateway_addr"`
-	BaseDir   string `yaml:"base_dir"`
+	Heartbeat   int    `yaml:"heartbeat_interval"`
+	Collect     int    `yaml:"collect_interval"`
+	Gateway     string `yaml:"gateway_addr"`
+	Server      string `yaml:"listen_addr"`
+	BaseDir     string `yaml:"base_dir"`
+	Application string `yaml:"application"`
 }
 
 type tlsStruct struct {
