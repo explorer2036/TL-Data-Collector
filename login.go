@@ -4,15 +4,16 @@ import (
 	"TL-Data-Collector/crypto"
 	"TL-Data-Collector/proto/gateway"
 	"context"
-	"fmt"
-	"github.com/emicklei/go-restful"
 	"net/http"
 	"time"
+
+	"github.com/emicklei/go-restful"
 )
 
 var (
-	privateKey    = "zYUTfA6Sa1lxTA43"
-	encryptedFile = "login"
+	encryptKey    = "zYUTfA6Sa1lxTA43"
+	encryptedFile = "login.dat"
+	uuidFile      = "uuid.dat"
 )
 
 // User for login id and password
@@ -20,6 +21,7 @@ type User struct {
 	LoginId  string
 	Password string
 	Token    string
+	UUID     string
 }
 
 func (p *Program) login(loginId string, password string) (*gateway.LoginReply, error) {
@@ -35,7 +37,7 @@ func (p *Program) login(loginId string, password string) (*gateway.LoginReply, e
 	// login with the id and password by gateway
 	loginReply, err := p.serviceClient.Login(ctx, loginRequest)
 	if err != nil {
-		return nil, fmt.Errorf("login status %v, message: %v", loginReply.Status, loginReply.Message)
+		return nil, err
 	}
 
 	return loginReply, nil
@@ -58,7 +60,7 @@ func (p *Program) Login(request *restful.Request, response *restful.Response) {
 
 	content := user.LoginId + ":" + user.Password
 	// write the login id and password to file
-	if err := crypto.EncryptFile(encryptedFile, []byte(content), privateKey); err != nil {
+	if err := crypto.EncryptFile(encryptedFile, []byte(content), encryptKey); err != nil {
 		response.WriteError(http.StatusInternalServerError, err)
 		return
 	}

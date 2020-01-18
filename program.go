@@ -17,6 +17,7 @@ import (
 
 	"github.com/emicklei/go-restful"
 	"github.com/kardianos/service"
+	uuid "github.com/satori/go.uuid"
 	"golang.org/x/sys/windows"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -28,8 +29,6 @@ var (
 	maxFileSize = 1024 * 1024
 	// data file path
 	dataPath = "\\conf\\appdata.txt"
-	// uuid file path
-	uuidPath = "\\conf\\uuid"
 )
 
 const (
@@ -52,8 +51,9 @@ type Program struct {
 	serviceClient gateway.ServiceClient // gateway service client
 	httpServer    *http.Server          // http server for login ui
 
-	user  User // the user's information for authentization
-	ready bool // whether it's ready to send messages to gateway
+	user  User   // the user's information for authentization
+	ready bool   // whether it's ready to send messages to gateway
+	uuid  string // uuid for user's machine
 }
 
 // check if the path exists or not
@@ -187,20 +187,51 @@ func (p *Program) newContainer() *restful.Container {
 // start the http server
 func (p *Program) startServer(wg *sync.WaitGroup) {
 	// start the http server
-	s := &http.Server{
+	p.httpServer = &http.Server{
 		Addr:    p.settings.App.Server,
 		Handler: p.newContainer(),
 	}
-	p.httpServer = s
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := s.ListenAndServe(); err != nil {
+		if err := p.httpServer.ListenAndServe(); err != nil {
 			log.Info("http server is closed")
 			return
 		}
 	}()
+}
+
+// load the uuid for user
+func (p *Program) load(name string) error {
+	// if the file is existed, read the uuid
+	if exists(name) {
+		data, err := ioutil.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		p.user.UUID = string(data)
+
+		return nil
+	}
+
+	// generate the uuid
+	u := uuid.NewV4()
+
+	// create the uuid file
+	file, err := os.Create(name)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// write the uuid to file
+	if _, err := file.Write([]byte(u.String())); err != nil {
+		return err
+	}
+	p.user.UUID = u.String()
+
+	return nil
 }
 
 // run the service logic
@@ -220,6 +251,12 @@ func (p *Program) run() error {
 		}
 	}
 
+	// try to load the uuid
+	if err := p.load(uuidFile); err != nil {
+		log.Errorf("load the uuid: %v", err)
+		os.Exit(1)
+	}
+
 	// context for controlling the goroutines
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -231,14 +268,16 @@ func (p *Program) run() error {
 	// start the heartbeat goroutine
 	go startCronJob(ctx, &wg, p.settings.App.Heartbeat, p.heartbeat)
 
-	wg.Add(1)
-	// start the collect goroutine
-	go startCronJob(ctx, &wg, p.settings.App.Collect, p.collect)
+	// wg.Add(1)
+	// // start the collect goroutine
+	// go startCronJob(ctx, &wg, p.settings.App.Collect, p.collect)
 
 	// block until receive a exit signal
 	for {
 		select {
 		case <-p.exit:
+			log.Info("receive the exit signal")
+
 			// flush the log
 			log.Sync()
 

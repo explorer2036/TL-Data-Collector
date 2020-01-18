@@ -66,7 +66,7 @@ func (p *Program) report(v interface{}) error {
 // login by the encrypted file
 func (p *Program) loginByFile() error {
 	// read the username and password
-	s, err := crypto.DecryptFile(encryptedFile, privateKey)
+	s, err := crypto.DecryptFile(encryptedFile, encryptKey)
 	if err != nil {
 		return err
 	}
@@ -99,7 +99,6 @@ func (p *Program) flush(v interface{}) error {
 				log.Errorf("login by ecnrypted file: %v", ierr)
 			}
 		}
-
 		return err
 	}
 
@@ -115,19 +114,12 @@ func (p *Program) heartbeat() {
 		return
 	}
 
-	// load the uuid every time
-	uuid, err := ioutil.ReadFile(p.settings.App.BaseDir + uuidPath)
-	if err != nil {
-		log.Errorf("read uuid file: %v", err)
-		return
-	}
-
 	// create the heartbeat data
 	hearbeat := entity.Heartbeat{
 		Kind:   "data_heartbeat",
 		Action: "insert",
 		UserID: p.user.LoginId,
-		Source: string(uuid),
+		Source: p.user.UUID,
 		Path:   "&&heartbeat",
 		Data: entity.HeartbeatData{
 			Status: "OK",
@@ -272,6 +264,7 @@ func (p *Program) transfer(name string, data []byte) error {
 
 		// these two fields are provided by collector
 		msg.UserID = p.user.LoginId
+		msg.Source = p.user.UUID
 		msg.Timestamp = time.Now().Format(Rfc3339Milli)
 
 		for {
