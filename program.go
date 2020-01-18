@@ -268,9 +268,9 @@ func (p *Program) run() error {
 	// start the heartbeat goroutine
 	go startCronJob(ctx, &wg, p.settings.App.Heartbeat, p.heartbeat)
 
-	// wg.Add(1)
-	// // start the collect goroutine
-	// go startCronJob(ctx, &wg, p.settings.App.Collect, p.collect)
+	wg.Add(1)
+	// start the collect goroutine
+	go startCronJob(ctx, &wg, p.settings.App.Collect, p.collect)
 
 	// block until receive a exit signal
 	for {

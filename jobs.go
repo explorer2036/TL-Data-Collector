@@ -230,9 +230,6 @@ func validate(m *entity.Message) error {
 	if m.Action != "insert" && m.Action != "update" {
 		return fmt.Errorf("invalid action: %v", m.Action)
 	}
-	if m.Source == "" {
-		return errors.New("source is empty")
-	}
 	if m.Path == "" {
 		return errors.New("path is empty")
 	}
