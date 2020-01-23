@@ -230,6 +230,9 @@ func validate(m *entity.Message) error {
 	if m.Action != "insert" && m.Action != "update" {
 		return fmt.Errorf("invalid action: %v", m.Action)
 	}
+	if m.Source == "" {
+		return errors.New("source is empty")
+	}
 	if m.Path == "" {
 		return errors.New("path is empty")
 	}
@@ -261,7 +264,6 @@ func (p *Program) transfer(name string, data []byte) error {
 
 		// these two fields are provided by collector
 		msg.UserID = p.user.LoginId
-		msg.Source = p.user.UUID
 		msg.Timestamp = time.Now().Format(Rfc3339Milli)
 
 		for {
