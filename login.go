@@ -22,6 +22,16 @@ type User struct {
 	Password string
 	Token    string
 	UUID     string
+	Healthy  bool
+}
+
+// Check if the login status is healthy
+func (p *Program) Health(request *restful.Request, response *restful.Response) {
+	if p.healthy {
+		response.WriteEntity("healthy")
+	} else {
+		response.WriteEntity("unhealthy")
+	}
 }
 
 func (p *Program) login(loginId string, password string) (*gateway.LoginReply, error) {
@@ -72,6 +82,7 @@ func (p *Program) Login(request *restful.Request, response *restful.Response) {
 
 	// mark ready to send messages
 	p.ready = true
+	p.healthy = true
 
 	response.WriteHeader(http.StatusOK)
 }

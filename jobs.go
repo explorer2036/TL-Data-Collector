@@ -75,6 +75,8 @@ func (p *Program) loginByFile() error {
 	parts := strings.Split(string(s), ":")
 	reply, err := p.login(parts[0], parts[1])
 	if err != nil {
+		// mark the login unhealthy
+		p.healthy = false
 		return err
 	}
 
@@ -85,6 +87,7 @@ func (p *Program) loginByFile() error {
 
 	// mark ready to send messages
 	p.ready = true
+	p.healthy = true
 
 	return nil
 }
@@ -117,12 +120,12 @@ func (p *Program) heartbeat() {
 	// create the heartbeat data
 	hearbeat := entity.Heartbeat{
 		Kind:   "data_heartbeat",
-		Action: "insert",
+		Action: "update",
 		UserID: p.user.LoginId,
 		Source: p.user.UUID,
 		Path:   "&&heartbeat",
 		Data: entity.HeartbeatData{
-			Status: "OK",
+			Status: "online",
 		},
 		Timestamp: time.Now().Format(Rfc3339Milli),
 	}
@@ -227,20 +230,25 @@ func validate(m *entity.Message) error {
 	if m.Kind == "" {
 		return errors.New("dtype is empty")
 	}
-	if m.Action != "insert" && m.Action != "update" {
-		return fmt.Errorf("invalid action: %v", m.Action)
-	}
-	if m.Source == "" {
-		return errors.New("source is empty")
-	}
-	if m.Path == "" {
-		return errors.New("path is empty")
-	}
-	if m.Time == "" {
-		return errors.New("time is empty")
-	}
 	if len(m.Data) == 0 {
 		return errors.New("data is empty")
+	}
+
+	switch m.Action {
+	case "insert", "update":
+		if m.Source == "" {
+			return errors.New("source is empty")
+		}
+		if m.Path == "" {
+			return errors.New("path is empty")
+		}
+		if m.Time == "" {
+			return errors.New("time is empty")
+		}
+	case "add", "del":
+		// nothing special fields to check
+	default:
+		return fmt.Errorf("invalid action: %v", m.Action)
 	}
 
 	return nil

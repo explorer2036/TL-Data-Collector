@@ -54,6 +54,8 @@ type Program struct {
 	user  User   // the user's information for authentization
 	ready bool   // whether it's ready to send messages to gateway
 	uuid  string // uuid for user's machine
+
+	healthy bool // whether it's healthy for login
 }
 
 // check if the path exists or not
@@ -71,21 +73,22 @@ func (p *Program) createCredentials() credentials.TransportCredentials {
 		panic(err)
 	}
 
-	certPool := x509.NewCertPool()
 	ca, err := ioutil.ReadFile(p.settings.TLS.Ca)
 	if err != nil {
 		panic(err)
 	}
 
+	certPool := x509.NewCertPool()
 	if ok := certPool.AppendCertsFromPEM(ca); !ok {
 		panic("append certs from pem")
 	}
 
-	return credentials.NewTLS(&tls.Config{
-		Certificates: []tls.Certificate{cert},
-		ServerName:   "TL-Data-Collector",
-		RootCAs:      certPool,
-	})
+	tlsConfig := &tls.Config{}
+	tlsConfig.RootCAs = certPool
+	tlsConfig.Certificates = []tls.Certificate{cert}
+	tlsConfig.BuildNameToCertificate()
+
+	return credentials.NewTLS(tlsConfig)
 }
 
 // init the service client

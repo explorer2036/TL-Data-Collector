@@ -19,9 +19,9 @@ type Message struct {
 	Kind      string                 `json:"dtype"`
 	Action    string                 `json:"action"`
 	UserID    string                 `json:"userid"`
-	Source    string                 `json:"source"`
-	Path      string                 `json:"path"`
-	Time      string                 `json:"time"`
+	Source    string                 `json:"source,omitempty"`
+	Path      string                 `json:"path,omitempty"`
+	Time      string                 `json:"time,omitempty"`
 	Timestamp string                 `json:"timestamp"`
 	Data      map[string]interface{} `json:"data"`
 }
