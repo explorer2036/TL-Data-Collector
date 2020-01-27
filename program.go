@@ -180,7 +180,9 @@ func (p *Program) newContainer() *restful.Container {
 		Consumes(restful.MIME_XML, restful.MIME_JSON).
 		Produces(restful.MIME_JSON, restful.MIME_XML)
 
-	ws.Route(ws.POST("/login").To(p.Login)) // user login routes
+	ws.Route(ws.POST("/login").To(p.Login))       // user login route
+	ws.Route(ws.POST("/register").To(p.Register)) // user register route
+	ws.Route(ws.POST("/health").To(p.Health))     // health route
 
 	container.Add(ws)
 

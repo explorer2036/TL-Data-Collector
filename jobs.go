@@ -84,6 +84,8 @@ func (p *Program) loginByFile() error {
 	p.user.LoginId = parts[0]
 	p.user.Password = parts[1]
 	p.user.Token = reply.Token
+	// format the uuid to user id
+	p.user.UserID = uuid2id(reply.UserID)
 
 	// mark ready to send messages
 	p.ready = true
@@ -121,7 +123,7 @@ func (p *Program) heartbeat() {
 	hearbeat := entity.Heartbeat{
 		Kind:   "data_heartbeat",
 		Action: "update",
-		UserID: p.user.LoginId,
+		UserID: p.user.UserID,
 		Source: p.user.UUID,
 		Path:   "&&heartbeat",
 		Data: entity.HeartbeatData{
@@ -271,7 +273,7 @@ func (p *Program) transfer(name string, data []byte) error {
 		}
 
 		// these two fields are provided by collector
-		msg.UserID = p.user.LoginId
+		msg.UserID = p.user.UserID
 		msg.Timestamp = time.Now().Format(Rfc3339Milli)
 
 		for {

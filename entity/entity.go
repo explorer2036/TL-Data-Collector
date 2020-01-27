@@ -18,7 +18,7 @@ package entity
 type Message struct {
 	Kind      string                 `json:"dtype"`
 	Action    string                 `json:"action"`
-	UserID    string                 `json:"userid"`
+	UserID    int                    `json:"userid"`
 	Source    string                 `json:"source,omitempty"`
 	Path      string                 `json:"path,omitempty"`
 	Time      string                 `json:"time,omitempty"`
@@ -55,7 +55,7 @@ type HeartbeatData struct {
 type Heartbeat struct {
 	Kind      string        `json:"dtype"`
 	Action    string        `json:"action"`
-	UserID    string        `json:"userid"`
+	UserID    int           `json:"userid"`
 	Source    string        `json:"source"`
 	Path      string        `json:"path"`
 	Data      HeartbeatData `json:"data"`
