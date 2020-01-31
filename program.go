@@ -248,18 +248,18 @@ func (p *Program) run() error {
 		os.Exit(1)
 	}
 
+	// try to load the uuid
+	if err := p.load(uuidFile); err != nil {
+		log.Errorf("load the uuid: %v", err)
+		os.Exit(1)
+	}
+
 	// check if it needs to login automatically
 	if exists(encryptedFile) {
 		if err := p.loginByFile(); err != nil {
 			log.Errorf("login by encrypt file: %v", err)
 			os.Exit(1)
 		}
-	}
-
-	// try to load the uuid
-	if err := p.load(uuidFile); err != nil {
-		log.Errorf("load the uuid: %v", err)
-		os.Exit(1)
 	}
 
 	// context for controlling the goroutines

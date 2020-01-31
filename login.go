@@ -112,6 +112,7 @@ func (p *Program) Login(request *restful.Request, response *restful.Response) {
 	}
 	if reply.Status != gateway.Status_Success {
 		response.WriteErrorString(http.StatusInternalServerError, reply.Message)
+		return
 	}
 
 	content := user.LoginId + ":" + user.Password
@@ -144,6 +145,9 @@ func uuid2id(uuid string) int {
 	}
 
 	out := strings.Replace(uuid[9:21], "-", "", -1)
-	id, _ := strconv.Atoi(out)
+	id, err := strconv.Atoi(out)
+	if err != nil {
+		panic(err)
+	}
 	return id
 }
